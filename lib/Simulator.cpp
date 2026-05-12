@@ -1,8 +1,8 @@
 #include "Simulator.hpp"
 
 #include <algorithm>
+#include <map>
 #include <ostream>
-#include <set>
 
 namespace {
 
@@ -22,9 +22,8 @@ void reveal_on_enter(BotView& v, const Dungeon& d, int room) {
   };
 
   bump(room, VISITED);
-  // ресурсы открываются
-  for (int k = 0; k < RES_COUNT; ++k)
-    v.res[room][k] = d.rooms[room].resources[k];
+  // Копируем ресурсы из подземелья — они теперь видны боту.
+  v.res[room] = d.rooms[room].resources;
   fill_neighbors(room);
 
   for (int nb : d.rooms[room].neighbors) {
@@ -35,6 +34,32 @@ void reveal_on_enter(BotView& v, const Dungeon& d, int room) {
       // У NUMBERED видим только номер — проходы НЕ заполняем.
     }
   }
+}
+
+// Считает суммарную ценность по итогам. Целевой ресурс — удвоенная цена.
+long long compute_total_value(const std::map<ResourceType, long long>& totals,
+                              ResourceType target) {
+  long long val = 0;
+  for (const auto& [type, count] : totals) {
+    auto it = BASE_VALUES.find(type);
+    if (it == BASE_VALUES.end()) continue;
+    long long base = it->second;
+    if (type == target) base *= 2;
+    val += base * count;
+  }
+  return val;
+}
+
+void print_result_line(std::ostream& out,
+                       const std::map<ResourceType, long long>& totals,
+                       long long val) {
+  out << "result";
+  // std::map итерируется по возрастанию ключа → iron, gold, gems, exp.
+  for (const auto& [type, count] : totals) {
+    (void)type;
+    out << ' ' << count;
+  }
+  out << ' ' << val << '\n';
 }
 
 }  // namespace
@@ -48,48 +73,45 @@ long long run_simulation(const Dungeon& d, IBot& bot, std::ostream& out) {
   v.target = d.target;
   v.known.assign(d.n + 1, UNKNOWN);
   v.neighbors.assign(d.n + 1, {});
-  v.res.assign(d.n + 1, {-1, -1, -1, -1});
+  v.res.assign(d.n + 1, {});  // пустые карты — комнаты ещё не VISITED
 
-  // Помечаем «было ли что собирать» — для печати "_".
-  // Это отдельно от текущих res[], потому что сборку трактуем
-  // как «забрать всё»: после сбора res[room][k] = 0, а флаг "был сбор" — true.
-  std::vector<std::array<bool, RES_COUNT>> collected(
-      d.n + 1, {false, false, false, false});
+  // Флаг «было ли что собирать» — отдельно от res, для печати "_".
+  // Карта на каждую комнату: ресурс → собирали ли его уже.
+  std::vector<std::map<ResourceType, bool>> collected(d.n + 1);
+  // Инициализируем все 4 ключа в false для каждой комнаты, чтобы
+  // дальше не возиться с «есть ли ключ».
+  for (auto& m : collected) {
+    for (const auto& [type, _] : BASE_VALUES) m[type] = false;
+  }
 
-  // Итог.
-  long long totals[RES_COUNT] = {0, 0, 0, 0};
+  // Итог. Тоже карта — но с long long, чтобы не переполнить при больших M.
+  std::map<ResourceType, long long> totals;
+  for (const auto& [type, _] : BASE_VALUES) totals[type] = 0;
 
-  // Заходим в комнату 0.
   reveal_on_enter(v, d, 0);
 
   auto print_state_now = [&](int room) {
     out << "state " << room;
-    for (int k = 0; k < RES_COUNT; ++k) {
+    // Идём по тем ресурсам, что есть в комнате (карта итерируется по
+    // возрастанию ключа: iron, gold, gems, exp).
+    for (const auto& [type, count] : v.res[room]) {
       out << ' ';
-      if (collected[room][k])
+      if (collected[room][type])
         out << '_';
       else
-        out << v.res[room][k];
+        out << count;
     }
     out << '\n';
   };
 
-  // Главный цикл: бот сам решает, когда остановиться (ACT_STOP),
-  // но симулятор страхует от безумных решений (нет еды и не дома и т.п.).
   int safety_limit = 100000;
   while (safety_limit-- > 0) {
     Action a = bot.decide(v);
 
-    if (a.kind == ACT_STOP) {
-      break;
-    }
+    if (a.kind == ACT_STOP) break;
 
     if (a.kind == ACT_MOVE) {
       int to = a.target_room;
-      // Рёбра считаем неориентированными: разрешён переход, если to
-      // есть в списке соседей current ИЛИ current есть в списке to.
-      // (В примере подземелья списки соседей могут быть «несогласованы»,
-      // но реальная проходимость — в обе стороны.)
       const auto& nb_cur = v.neighbors[v.current];
       bool ok_edge =
           std::find(nb_cur.begin(), nb_cur.end(), to) != nb_cur.end();
@@ -99,27 +121,15 @@ long long run_simulation(const Dungeon& d, IBot& bot, std::ostream& out) {
             std::find(nb_to.begin(), nb_to.end(), v.current) != nb_to.end();
       }
       if (!ok_edge) break;
-      // Тратим еду.
       if (v.food_left <= 0 && v.current != 0) break;
       v.food_left -= 1;
       v.current = to;
       reveal_on_enter(v, d, to);
       out << "go " << to << '\n';
-      // По условию state выводится после каждого действия, кроме
-      // возврата в стартовую комнату. Поэтому при возврате в 0 — нет state.
       if (to != 0) print_state_now(to);
-      // Если пришли в стартовую — это финал.
       if (to == 0) {
-        // Печатаем result.
-        out << "result";
-        for (int k = 0; k < RES_COUNT; ++k) out << ' ' << totals[k];
-        long long val = 0;
-        for (int k = 0; k < RES_COUNT; ++k) {
-          long long base = BASE_VALUES[k];
-          if ((ResourceType)k == d.target) base *= 2;
-          val += base * totals[k];
-        }
-        out << ' ' << val << '\n';
+        long long val = compute_total_value(totals, d.target);
+        print_result_line(out, totals, val);
         return val;
       }
       continue;
@@ -128,45 +138,42 @@ long long run_simulation(const Dungeon& d, IBot& bot, std::ostream& out) {
     if (a.kind == ACT_COLLECT) {
       int room = v.current;
       ResourceType k = a.resource;
-      int amount = v.res[room][k];
-      if (amount <= 0) break;
-      // Стоимость: если это не «первый сбор в комнате», тратится 1 еды.
-      bool any_collected_before = false;
-      for (int j = 0; j < RES_COUNT; ++j)
-        if (collected[room][j]) {
-          any_collected_before = true;
+      auto it = v.res[room].find(k);
+      if (it == v.res[room].end() || it->second <= 0) break;
+      int amount = it->second;
+
+      // Если в этой комнате уже собирали хоть что-то — платим 1 еды.
+      bool any_before = false;
+      for (const auto& [type, was] : collected[room]) {
+        (void)type;
+        if (was) {
+          any_before = true;
           break;
         }
-      if (any_collected_before) {
+      }
+      if (any_before) {
         if (v.food_left <= 0) break;
         v.food_left -= 1;
       }
-      // Забираем всё.
       totals[k] += amount;
-      v.res[room][k] = 0;
+      it->second = 0;
       collected[room][k] = true;
-      out << "collect " << RES_NAMES[k] << '\n';
+
+      auto name_it = RES_NAMES.find(k);
+      out << "collect "
+          << (name_it != RES_NAMES.end() ? name_it->second : std::string("?"))
+          << '\n';
       print_state_now(room);
       continue;
     }
     break;
   }
 
-  // Если вышли из цикла «штатно» через ACT_STOP — значит бот сам решил
-  // закончить. Симулятор требует, чтобы финал был в комнате 0 и printed result.
-  // Если бот этого не достиг, всё равно выведем result — но это будет
-  // означать ошибку алгоритма (персонаж умер / застрял).
+  // Аварийная печать, если бот сам остановился где-то.
   if (v.current == 0) {
-    out << "result";
-    for (int k = 0; k < RES_COUNT; ++k) out << ' ' << totals[k];
-    long long val = 0;
-    for (int k = 0; k < RES_COUNT; ++k) {
-      long long base = BASE_VALUES[k];
-      if ((ResourceType)k == d.target) base *= 2;
-      val += base * totals[k];
-    }
-    out << ' ' << val << '\n';
+    long long val = compute_total_value(totals, d.target);
+    print_result_line(out, totals, val);
     return val;
   }
-  return 0;  // персонаж умер
+  return 0;
 }

@@ -1,8 +1,10 @@
 #pragma once
-#include <array>
+
+#include <map>
 #include <vector>
 
 #include "Resources.hpp"
+
 // Что бот знает про каждую комнату — см. правила раскрытия в условии.
 enum Knowledge {
   UNKNOWN = 0,   // вообще не известна
@@ -22,8 +24,10 @@ struct BotView {
   ResourceType target;
   std::vector<Knowledge> known;
   std::vector<std::vector<int>> neighbors;  // непусто для NUMBERED+
-  std::vector<std::array<int, RES_COUNT>>
-      res;  // -1 в каждой позиции, если не VISITED
+
+  // Для каждой комнаты — карта ресурс→количество.
+  // Если комната не VISITED, карта пуста (бот ещё не видит ресурсы).
+  std::vector<std::map<ResourceType, int>> res;
 };
 
 enum ActionKind { ACT_MOVE, ACT_COLLECT, ACT_STOP };

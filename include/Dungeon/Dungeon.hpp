@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -9,7 +10,8 @@
 struct Room {
   int id;
   std::vector<int> neighbors;
-  int resources[RES_COUNT];  // iron, gold, gems, exp
+  // Счётчики по типу ресурса. Парсер всегда заполняет все 4 ключа.
+  std::map<ResourceType, int> resources;
 };
 
 struct Dungeon {

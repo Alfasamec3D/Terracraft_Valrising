@@ -1,0 +1,18 @@
+go 1
+state 1 5 2 1 15
+collect gems
+state 1 5 2 _ 15
+go 3
+state 3 1 0 2 40
+collect gems
+state 3 1 0 _ 40
+go 4
+state 4 2 4 0 15
+collect gold
+state 4 2 _ 0 15
+go 3
+state 3 1 0 _ 40
+go 1
+state 1 5 2 _ 15
+go 0
+result 0 4 3 0 182
