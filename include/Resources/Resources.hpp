@@ -3,12 +3,11 @@
 #include <string>
 
 enum ResourceType {
-  RES_IRON = 0,
-  RES_GOLD = 1,
-  RES_GEMS = 2,
-  RES_EXP = 3,
+  RES_IRON,
+  RES_GOLD,
+  RES_GEMS,
+  RES_EXP,
 };
-
 
 const std::map<ResourceType, int> BASE_VALUES = {
     {RES_IRON, 7}, {RES_GOLD, 11}, {RES_GEMS, 23}, {RES_EXP, 1}};

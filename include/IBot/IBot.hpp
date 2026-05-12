@@ -5,33 +5,29 @@
 
 #include "Resources.hpp"
 
-// Что бот знает про каждую комнату — см. правила раскрытия в условии.
-enum Knowledge {
-  UNKNOWN = 0,   // вообще не известна
-  NUMBERED = 1,  // известен только номер
-  VISIBLE = 2,   // видны проходы из неё, но не ресурсы
-  VISITED = 3    // полная информация
-};
+namespace Bot {
 
-// Снимок мира с точки зрения бота. Симулятор обновляет его сам.
-// Бот принимает решения ТОЛЬКО на основе этого снимка — это
-// соответствует правилам раскрытия карты из условия.
-struct BotView {
-  int n;
+enum Knowledge { NUMBERED, VISIBLE, VISITED };
+
+struct BotView final {
   int current;
   int food_left;
-  int food_total;  // M, нужен для фазы
+  int food_total;
   ResourceType target;
-  std::vector<Knowledge> known;
-  std::vector<std::vector<int>> neighbors;  // непусто для NUMBERED+
 
-  // Для каждой комнаты — карта ресурс→количество.
-  // Если комната не VISITED, карта пуста (бот ещё не видит ресурсы).
-  std::vector<std::map<ResourceType, int>> res;
+  // Status of every known room
+  std::map<int, Knowledge> known;
+
+  // Known neighbors of VISIBLE and VISITED
+  std::map<int, std::vector<int>> neighbors;
+
+  // Resources of VISITED rooms
+  std::map<int, std::map<ResourceType, int>> res;
 };
 
 enum ActionKind { ACT_MOVE, ACT_COLLECT, ACT_STOP };
-struct Action {
+
+struct Action final {
   ActionKind kind;
   int target_room;
   ResourceType resource;
@@ -42,3 +38,4 @@ class IBot {
   virtual ~IBot() = default;
   virtual Action decide(const BotView& v) = 0;
 };
+}  // namespace Bot

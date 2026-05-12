@@ -1,28 +1,29 @@
 #pragma once
 
 #include <cstddef>
+#include <iostream>
 #include <map>
 #include <set>
 #include <vector>
-#include <iostream>
 
 #include "Resources.hpp"
+
+namespace Terracraft {
 
 class Room final {
  private:
   const size_t id_;
-  const std::vector<int> neighbors_;
+  const std::vector<size_t> neighbors_;
   std::map<ResourceType, int> resources_;
   std::set<ResourceType> grabbed_resources_;
 
  public:
-  Room(const size_t& id, std::vector<int>::iterator start_neigh,
-       std::vector<int>::iterator end_neigh,
-       const std::map<ResourceType, int> resources)
+  Room(const size_t& id, std::vector<size_t>::const_iterator start_neigh,
+       std::vector<size_t>::const_iterator end_neigh,
+       const std::map<ResourceType, int>& resources)
       : id_(id), neighbors_(start_neigh, end_neigh), resources_(resources) {}
 
-
-  const std::vector<int>& neighbors() const { return neighbors_; }
+  const std::vector<size_t>& neighbors() const { return neighbors_; }
 
   const std::map<ResourceType, int>& resources() const { return resources_; }
 
@@ -37,21 +38,19 @@ class Room final {
     return loot;
   }
 
-  friend std::ostream& operator<<(std::ostream& os,const Room& room) {
-  os << "state " << room.id_;
+  friend std::ostream& operator<<(std::ostream& os, const Room& room) {
+    os << "state " << room.id_;
 
-  for (const auto& [type, count] : room.resources_) {
-    os << ' ';
-    if (room.grabbed_resources().count(type))
-      os << '_';
-    else
-      os << count;
+    for (const auto& [type, count] : room.resources_) {
+      os << ' ';
+      if (room.grabbed_resources().count(type))
+        os << '_';
+      else
+        os << count;
+    }
+    return os;
   }
-  return os;
-}
-
 };
-
 
 class Dungeon final {
  private:
@@ -71,3 +70,4 @@ class Dungeon final {
 
   size_t N() const { return rooms_.size() - 1; }
 };
+}  // namespace Terracraft

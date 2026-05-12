@@ -2,32 +2,43 @@
 
 #include <algorithm>
 #include <climits>
+#include <map>
 #include <queue>
-
+namespace Bot {
 namespace {
 
-// Сколько еды нужно, чтобы вернуться отсюда в 0 по уже посещённым комнатам.
-// Рёбра считаем неориентированными.
+// Текущий уровень знания про комнату, NUMBERED-1 если не знаем ничего.
+// (Удобно для сравнений типа "если >= VISIBLE".)
+int known_level(const BotView& v, int room) {
+  auto it = v.known.find(room);
+  return it == v.known.end() ? 0 : (int)it->second;
+}
+
+const std::vector<int>& neighbors_of(const BotView& v, int room) {
+  static const std::vector<int> empty;
+  auto it = v.neighbors.find(room);
+  return it == v.neighbors.end() ? empty : it->second;
+}
+
+const std::map<ResourceType, int>& res_of(const BotView& v, int room) {
+  static const std::map<ResourceType, int> empty;
+  auto it = v.res.find(room);
+  return it == v.res.end() ? empty : it->second;
+}
+
+// Расстояние от from до 0 по графу VISITED-комнат. INT_MAX, если нет пути.
 int distance_to_zero_visited(const BotView& v, int from) {
   if (from == 0) return 0;
-  std::vector<std::vector<int>> adj(v.n + 1);
-  for (int u = 0; u <= v.n; ++u) {
-    if (v.known[u] != VISITED) continue;
-    for (int x : v.neighbors[u]) {
-      if (v.known[x] != VISITED) continue;
-      adj[u].push_back(x);
-      adj[x].push_back(u);
-    }
-  }
-  std::vector<int> dist(v.n + 1, -1);
+  std::map<int, int> dist;
   std::queue<int> q;
   q.push(from);
   dist[from] = 0;
   while (!q.empty()) {
     int u = q.front();
     q.pop();
-    for (int nb : adj[u]) {
-      if (dist[nb] != -1) continue;
+    for (int nb : neighbors_of(v, u)) {
+      if (known_level(v, nb) != VISITED) continue;
+      if (dist.count(nb)) continue;
       dist[nb] = dist[u] + 1;
       if (nb == 0) return dist[nb];
       q.push(nb);
@@ -36,51 +47,41 @@ int distance_to_zero_visited(const BotView& v, int from) {
   return INT_MAX;
 }
 
+// Кратчайший путь от from до 0 по VISITED-комнатам.
+// На развилках при восстановлении пути выбираем меньший номер.
 std::vector<int> shortest_path_to_zero(const BotView& v, int from) {
-  std::vector<std::vector<int>> adj(v.n + 1);
-  for (int u = 0; u <= v.n; ++u) {
-    if (v.known[u] != VISITED) continue;
-    for (int x : v.neighbors[u]) {
-      if (v.known[x] != VISITED) continue;
-      adj[u].push_back(x);
-      adj[x].push_back(u);
-    }
-  }
-  std::vector<int> dist(v.n + 1, -1);
+  // BFS от 0 по VISITED.
+  std::map<int, int> dist;
   std::queue<int> q;
   dist[0] = 0;
   q.push(0);
   while (!q.empty()) {
     int u = q.front();
     q.pop();
-    for (int nb : adj[u]) {
-      if (dist[nb] != -1) continue;
+    for (int nb : neighbors_of(v, u)) {
+      if (known_level(v, nb) != VISITED) continue;
+      if (dist.count(nb)) continue;
       dist[nb] = dist[u] + 1;
       q.push(nb);
     }
   }
   std::vector<int> path;
-  if (dist[from] == -1) return path;
+  if (!dist.count(from)) return path;
   int cur = from;
   while (cur != 0) {
     int best = -1;
-    for (int nb : adj[cur]) {
-      if (dist[nb] != dist[cur] - 1) continue;
+    for (int nb : neighbors_of(v, cur)) {
+      auto it = dist.find(nb);
+      if (it == dist.end() || it->second != dist[cur] - 1) continue;
       if (best == -1 || nb < best) best = nb;
     }
-    if (best == -1) {
-      path.clear();
-      return path;
-    }
+    if (best == -1) return {};
     path.push_back(best);
     cur = best;
   }
   return path;
 }
 
-// Самый ценный из оставшихся ресурс в комнате. Возвращает std::nullopt,
-// если в комнате ничего нет.
-// Берём ResourceType из BASE_VALUES, цена удваивается если это target.
 struct BestResult {
   bool has;
   ResourceType type;
@@ -89,10 +90,7 @@ struct BestResult {
 BestResult best_resource_in_room(const BotView& v, int room) {
   BestResult result{false, RES_IRON};
   long long best_val = -1;
-
-  // Идём по ресурсам, которые есть в комнате (map итерируется в порядке
-  // ключей — стабильно).
-  for (const auto& [type, count] : v.res[room]) {
+  for (const auto& [type, count] : res_of(v, room)) {
     if (count <= 0) continue;
     auto base_it = BASE_VALUES.find(type);
     if (base_it == BASE_VALUES.end()) continue;
@@ -106,19 +104,20 @@ BestResult best_resource_in_room(const BotView& v, int room) {
   return result;
 }
 
+// Куда сделать следующий шаг в фазе исследования (см. ТЗ).
 int next_explore_target(const BotView& v) {
   int cur = v.current;
-  // (1) Среди смежных непосещённых — с наименьшим номером.
+  // (1) Смежные «не посещённые, но хоть как-то известные» — наименьший номер.
   int best = -1;
-  for (int nb : v.neighbors[cur]) {
-    if (v.known[nb] == VISITED) continue;
-    if (v.known[nb] == UNKNOWN) continue;
+  for (int nb : neighbors_of(v, cur)) {
+    int lvl = known_level(v, nb);
+    if (lvl == 0 || lvl == VISITED) continue;
     if (best == -1 || nb < best) best = nb;
   }
   if (best != -1) return best;
 
-  // (2) Ищем ближайшую непосещённую через граф посещённых.
-  std::vector<int> dist(v.n + 1, -1);
+  // (2) BFS по VISITED — ищем ближайшую не посещённую (но известную) фронтиру.
+  std::map<int, int> dist;
   std::queue<int> q;
   dist[cur] = 0;
   q.push(cur);
@@ -126,24 +125,27 @@ int next_explore_target(const BotView& v) {
   while (!q.empty()) {
     int u = q.front();
     q.pop();
-    for (int nb : v.neighbors[u]) {
-      if (v.known[nb] == VISITED || v.known[nb] == UNKNOWN) continue;
+    for (int nb : neighbors_of(v, u)) {
+      int lvl = known_level(v, nb);
+      if (lvl == 0 || lvl == VISITED) continue;
       int d_to_nb = dist[u] + 1;
       if (d_to_nb < best_dist || (d_to_nb == best_dist && nb < best_room)) {
         best_dist = d_to_nb;
         best_room = nb;
       }
     }
-    for (int nb : v.neighbors[u]) {
-      if (v.known[nb] != VISITED) continue;
-      if (dist[nb] != -1) continue;
+    for (int nb : neighbors_of(v, u)) {
+      if (known_level(v, nb) != VISITED) continue;
+      if (dist.count(nb)) continue;
       dist[nb] = dist[u] + 1;
       q.push(nb);
     }
   }
   if (best_room == -1) return -1;
-  std::vector<int> parent(v.n + 1, -1);
-  std::vector<int> d2(v.n + 1, -1);
+
+  // (3) Восстанавливаем первый шаг к best_room через посещённые.
+  std::map<int, int> parent;
+  std::map<int, int> d2;
   d2[cur] = 0;
   std::queue<int> q2;
   q2.push(cur);
@@ -151,15 +153,15 @@ int next_explore_target(const BotView& v) {
     int u = q2.front();
     q2.pop();
     if (u == best_room) break;
-    for (int nb : v.neighbors[u]) {
-      if (d2[nb] != -1) continue;
-      if (nb != best_room && v.known[nb] != VISITED) continue;
+    for (int nb : neighbors_of(v, u)) {
+      if (d2.count(nb)) continue;
+      if (nb != best_room && known_level(v, nb) != VISITED) continue;
       d2[nb] = d2[u] + 1;
       parent[nb] = u;
       q2.push(nb);
     }
   }
-  if (d2[best_room] == -1) return -1;
+  if (!d2.count(best_room)) return -1;
   int step = best_room;
   while (parent[step] != cur) step = parent[step];
   return step;
@@ -168,7 +170,7 @@ int next_explore_target(const BotView& v) {
 }  // namespace
 
 Action AliceBot::decide(const BotView& v) {
-  ensure_sized(v.n);
+  ensure_sized(v.current);
 
   // === Фаза возврата ===
   if (returning_) {
@@ -194,6 +196,7 @@ Action AliceBot::decide(const BotView& v) {
   int spent = v.food_total - v.food_left;
   bool budget_exhausted = (spent >= v.food_total / 2);
 
+  ensure_sized(v.current);
   if (!collected_here_[v.current]) {
     BestResult b = best_resource_in_room(v, v.current);
     if (b.has) {
@@ -230,3 +233,4 @@ Action AliceBot::decide(const BotView& v) {
   }
   return Action{ACT_MOVE, next, RES_IRON};
 }
+}  // namespace Bot

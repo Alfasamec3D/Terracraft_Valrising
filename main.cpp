@@ -11,7 +11,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  ParseResult pr = load_dungeon(argv[1]);
+  Parser::ParseResult pr = Parser::load_dungeon(argv[1]);
 
   std::ofstream fout("result.txt");
   if (!pr.ok) {
@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  AliceBot bot;
-  run_simulation(*pr.dungeon, pr.M_, bot, fout);
+  Bot::AliceBot bot;
+  Simulator::run_simulation(*pr.dungeon, pr.M_, bot, fout);
   return 0;
 }

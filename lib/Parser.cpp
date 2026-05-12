@@ -7,7 +7,7 @@
 #include <map>
 #include <sstream>
 #include <vector>
-
+namespace Parser {
 namespace {
 
 const std::array<ResourceType, 4>& resource_order() {
@@ -29,9 +29,23 @@ bool parse_uint(const std::string& tok, int& out) {
     if (!std::isdigit((unsigned char)c)) return false;
   }
   try {
-    long v = std::stol(tok);
-    if (v < 0 || v > 1000000) return false;
-    out = (int)v;
+    out = std::stoi(tok);
+    if (out < 0) return false;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool parse_uint(const std::string& tok, size_t& out) {
+  if (tok.empty()) return false;
+  for (char c : tok) {
+    if (!std::isdigit((unsigned char)c)) return false;
+  }
+  try {
+    int v = std::stoi(tok);
+    if (v < 0) return false;
+    out = v;
     return true;
   } catch (...) {
     return false;
@@ -46,14 +60,14 @@ std::vector<std::string> split_ws(const std::string& s) {
   return out;
 }
 
-bool split_neighbors(const std::string& s, std::vector<int>& out) {
+bool split_neighbors(const std::string& s, std::vector<size_t>& out) {
   out.clear();
   if (s.empty()) return false;
   std::string cur;
   for (size_t i = 0; i <= s.size(); ++i) {
     if (i == s.size() || s[i] == ',') {
       if (cur.empty()) return false;
-      int v;
+      size_t v;
       if (!parse_uint(cur, v)) return false;
       out.push_back(v);
       cur.clear();
@@ -74,12 +88,9 @@ bool parse_target(const std::string& s, ResourceType& out) {
   return false;
 }
 
-// Промежуточный POD для первой фазы — у Room const-поля, мы не можем
-// держать в std::vector<Room> «недозаполненные» комнаты. Сначала всё
-// читаем сюда, потом конструируем настоящие Room.
 struct RoomDraft {
-  int id = -1;
-  std::vector<int> neighbors;
+  size_t id = -1;
+  std::vector<size_t> neighbors;
   std::map<ResourceType, int> resources;
 };
 
@@ -133,7 +144,7 @@ ParseResult load_dungeon(const std::string& path) {
       return res;
     }
 
-    int id;
+    size_t id;
     if (!parse_uint(tok[0], id) || id < 0 || id > n) {
       res.bad_line = raw;
       return res;
@@ -150,7 +161,7 @@ ParseResult load_dungeon(const std::string& path) {
       res.bad_line = raw;
       return res;
     }
-    for (int nb : r.neighbors) {
+    for (size_t nb : r.neighbors) {
       if (nb < 0 || nb > n || nb == id) {
         res.bad_line = raw;
         return res;
@@ -207,8 +218,7 @@ ParseResult load_dungeon(const std::string& path) {
     return res;
   }
 
-  // Вторая фаза — конструируем настоящие Room из черновиков.
-  std::vector<Room> rooms;
+  std::vector<Terracraft::Room> rooms;
   rooms.reserve(n + 1);
   for (int i = 0; i <= n; ++i) {
     RoomDraft& d = drafts[i];
@@ -216,9 +226,10 @@ ParseResult load_dungeon(const std::string& path) {
                        d.neighbors.end(), d.resources);
   }
 
-  res.dungeon =
-      std::unique_ptr<Dungeon>(new Dungeon(tgt, rooms.begin(), rooms.end()));
+  res.dungeon = std::unique_ptr<Terracraft::Dungeon>(
+      new Terracraft::Dungeon(tgt, rooms.begin(), rooms.end()));
   res.M_ = m;
   res.ok = true;
   return res;
 }
+}  // namespace Parser

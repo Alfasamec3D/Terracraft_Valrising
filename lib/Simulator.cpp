@@ -4,28 +4,35 @@
 #include <map>
 #include <ostream>
 
+namespace Simulator {
 namespace {
 
-// Update knowledge of the visited room
-void reveal_on_enter(BotView& v, const Dungeon& d, int room) {
-  auto bump = [&](int x, Knowledge target) {
-    if (v.known[x] < target) v.known[x] = target;
+// Обновляет знания бота при входе в комнату room.
+void reveal_on_enter(Bot::BotView& v, const Terracraft::Dungeon& d, int room) {
+  auto bump = [&](int x, Bot::Knowledge target) {
+    auto it = v.known.find(x);
+    if (it == v.known.end() || it->second < target) v.known[x] = target;
+  };
+  // Кладём ребро (a, b) с обеих сторон в v.neighbors. Дубликаты не плодим.
+  auto add_edge = [&](int a, int b) {
+    auto& la = v.neighbors[a];
+    if (std::find(la.begin(), la.end(), b) == la.end()) la.push_back(b);
+    auto& lb = v.neighbors[b];
+    if (std::find(lb.begin(), lb.end(), a) == lb.end()) lb.push_back(a);
   };
   auto fill_neighbors = [&](int x) {
-    if (v.neighbors[x].empty() && !d.room_id(x).neighbors().empty()) {
-      v.neighbors[x] = d.room_id(x).neighbors();
-    }
+    for (int y : d.room_id(x).neighbors()) add_edge(x, y);
   };
 
-  bump(room, VISITED);
+  bump(room, Bot::VISITED);
   v.res[room] = d.room_id(room).resources();
   fill_neighbors(room);
 
   for (int nb : d.room_id(room).neighbors()) {
-    bump(nb, VISIBLE);
+    bump(nb, Bot::VISIBLE);
     fill_neighbors(nb);
     for (int nn : d.room_id(nb).neighbors()) {
-      bump(nn, NUMBERED);
+      bump(nn, Bot::NUMBERED);
     }
   }
 }
@@ -51,20 +58,23 @@ void print_result_line(std::ostream& out,
   out << ' ' << val << std::endl;
 }
 
+// Безопасный доступ к соседям комнаты в BotView (map может не содержать ключа).
+const std::vector<int>& neighbors_of(const Bot::BotView& v, int room) {
+  static const std::vector<int> empty;
+  auto it = v.neighbors.find(room);
+  return it == v.neighbors.end() ? empty : it->second;
+}
+
 }  // namespace
 
-void run_simulation(Dungeon& d, int food, IBot& bot, std::ostream& out) {
-  const int n = d.N();
-
-  BotView v;
-  v.n = n;
+void run_simulation(Terracraft::Dungeon& d, int food, Bot::IBot& bot,
+                    std::ostream& out) {
+  Bot::BotView v;
   v.current = 0;
   v.food_left = food;
   v.food_total = food;
   v.target = d.target();
-  v.known.assign(n + 1, UNKNOWN);
-  v.neighbors.assign(n + 1, {});
-  v.res.assign(n + 1, {});
+  // known/neighbors/res — пустые. Заполнятся через reveal_on_enter.
 
   std::map<ResourceType, int> totals;
   for (const auto& [type, _] : BASE_VALUES) totals[type] = 0;
@@ -73,17 +83,17 @@ void run_simulation(Dungeon& d, int food, IBot& bot, std::ostream& out) {
 
   int safety_limit = 100000;
   while (safety_limit-- > 0) {
-    Action a = bot.decide(v);
+    Bot::Action a = bot.decide(v);
 
-    if (a.kind == ACT_STOP) break;
+    if (a.kind == Bot::ACT_STOP) break;
 
-    if (a.kind == ACT_MOVE) {
+    if (a.kind == Bot::ACT_MOVE) {
       int to = a.target_room;
-      const auto& nb_cur = v.neighbors[v.current];
+      const auto& nb_cur = neighbors_of(v, v.current);
       bool ok_edge =
           std::find(nb_cur.begin(), nb_cur.end(), to) != nb_cur.end();
       if (!ok_edge) {
-        const auto& nb_to = v.neighbors[to];
+        const auto& nb_to = neighbors_of(v, to);
         ok_edge =
             std::find(nb_to.begin(), nb_to.end(), v.current) != nb_to.end();
       }
@@ -102,22 +112,21 @@ void run_simulation(Dungeon& d, int food, IBot& bot, std::ostream& out) {
       continue;
     }
 
-    if (a.kind == ACT_COLLECT) {
+    if (a.kind == Bot::ACT_COLLECT) {
       int room = v.current;
       ResourceType k = a.resource;
-      auto it = v.res[room].find(k);
-      if (it == v.res[room].end() || it->second <= 0) break;
+      auto& room_res = v.res[room];
+      auto it = room_res.find(k);
+      if (it == room_res.end() || it->second <= 0) break;
 
       // Источник истины — Room. Первый сбор в комнате (когда grabbed
       // ещё пуст) бесплатный, последующие стоят 1 еды.
-
       if (!d.room_id(room).grabbed_resources().empty()) {
         if (v.food_left <= 0) break;
         v.food_left -= 1;
       }
 
       totals[k] += d.room_id(room).grab(k);
-
       it->second = 0;
 
       out << "collect " << RES_NAMES.at(k) << std::endl
@@ -129,5 +138,6 @@ void run_simulation(Dungeon& d, int food, IBot& bot, std::ostream& out) {
 
   if (v.current == 0)
     print_result_line(out, totals, compute_total_value(totals, d.target()));
-  return;
 }
+
+}  // namespace Simulator

@@ -5,6 +5,15 @@ find_package(GTest REQUIRED)
 include(GoogleTest)
 
 
+add_executable(dungeon_test unit/dungeon_test.cpp)
+
+target_link_libraries(dungeon_test PRIVATE Dungeon GTest::gtest_main)
+
+gtest_discover_tests(dungeon_test)
+
+
+
+
 set(E2E_DIR    "${CMAKE_CURRENT_SOURCE_DIR}/e2e")
 set(CASES_DIR  "${E2E_DIR}/io")
 set(RUNNER     "${E2E_DIR}/run.sh")
