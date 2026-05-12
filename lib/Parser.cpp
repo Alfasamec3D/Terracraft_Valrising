@@ -10,12 +10,6 @@
 namespace Parser {
 namespace {
 
-const std::array<ResourceType, 4>& resource_order() {
-  static const std::array<ResourceType, 4> order{RES_IRON, RES_GOLD, RES_GEMS,
-                                                 RES_EXP};
-  return order;
-}
-
 std::string trim(const std::string& s) {
   size_t a = 0, b = s.size();
   while (a < b && std::isspace((unsigned char)s[a])) ++a;
@@ -133,7 +127,6 @@ ParseResult load_dungeon(const std::string& path) {
 
   std::vector<RoomDraft> drafts(n + 1);
   std::vector<bool> seen(n + 1, false);
-  const auto& order = resource_order();
 
   for (int i = 0; i <= n; ++i) {
     const std::string& raw = lines[1 + i];
@@ -168,17 +161,15 @@ ParseResult load_dungeon(const std::string& path) {
       }
     }
 
-    for (ResourceType rt : order) r.resources[rt] = 0;
-
     if (tok.size() == 6) {
       bool any_nonzero = false;
-      for (size_t k = 0; k < order.size(); ++k) {
+      for (const auto & [restype, _] :BASE_VALUES) {
         int val;
-        if (!parse_uint(tok[2 + k], val) || val < 0 || val > 255) {
+        if (!parse_uint(tok[2 + restype], val) || val < 0 || val > 255) {
           res.bad_line = raw;
           return res;
         }
-        r.resources[order[k]] = val;
+        r.resources[restype] = val;
         if (val) any_nonzero = true;
       }
       if (id == 0 && any_nonzero) {
