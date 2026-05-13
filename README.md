@@ -24,3 +24,7 @@
 
 1. In the same directory use `build/main <directory with input data>`.
 2. Enjoy the program.
+
+## Link to the reposotory
+
+[github.com/Alfasamec3D/Terracraft_Valrising](https://github.com/Alfasamec3D/Terracraft_Valrising)
